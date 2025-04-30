@@ -8,6 +8,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as snsSubs from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
 export class LambdaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: {
@@ -83,5 +84,56 @@ export class LambdaStack extends cdk.Stack {
 
     // Configure RemoveImage Lambda to process messages from DLQ
     removeImageLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.dlq));
+
+    // Update Status Lambda
+    const updateStatusLambda = new lambda.Function(this, 'UpdateStatusLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambdas/update-status'),
+      environment: {
+        TABLE_NAME: props.imageTable.tableName,
+        NOTIFICATION_TOPIC_ARN: props.statusTopic.topicArn
+      }
+    });
+
+    // Grant Lambda access to DynamoDB and SNS
+    props.imageTable.grantWriteData(updateStatusLambda);
+    props.statusTopic.grantPublish(updateStatusLambda);
+
+    // Configure SNS subscription with filter
+    props.imageTopic.addSubscription(new snsSubs.LambdaSubscription(updateStatusLambda, {
+      filterPolicy: {
+        messageType: sns.SubscriptionFilter.stringFilter({
+          allowlist: ['StatusUpdate']
+        })
+      }
+    }));
+
+    // Status Update Mailer Lambda
+    const statusMailerLambda = new lambda.Function(this, 'StatusMailerLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambdas/status-mailer'),
+      environment: {
+        TABLE_NAME: props.imageTable.tableName,
+        PHOTOGRAPHER_EMAIL: 'test@example.com',  // 测试用
+        FROM_EMAIL: 'no-reply@example.com'       // 测试用
+      }
+    });
+
+    // Grant Lambda access to DynamoDB
+    props.imageTable.grantReadData(statusMailerLambda);
+
+    // Create SES send email permission
+    const sesPolicy = new iam.PolicyStatement({
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'], // 实际应用中应限制资源范围
+    });
+    statusMailerLambda.addToRolePolicy(sesPolicy);
+
+    // Add SNS subscription for status updates
+    props.statusTopic.addSubscription(
+      new snsSubs.LambdaSubscription(statusMailerLambda)
+    );
   }
 }
