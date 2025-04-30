@@ -3,12 +3,18 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
 export class LambdaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: {
     imageBucket: s3.Bucket,
-    imageTable: dynamodb.Table
+    imageTable: dynamodb.Table,
+    imageTopic: sns.Topic,
+    imageQueue: sqs.Queue,
+    dlq: sqs.Queue,
+    statusTopic: sns.Topic
   } & cdk.StackProps) {
     super(scope, id, props);
 
