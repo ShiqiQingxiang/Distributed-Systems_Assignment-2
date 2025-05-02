@@ -45,25 +45,45 @@ export class LambdaStack extends cdk.Stack {
     props.imageTable.grantWriteData(logImageLambda);
     props.imageTable.grantWriteData(addMetadataLambda);
     
-    // Configure S3 to publish events to SNS
+    // 为了处理无效文件，我们添加一个SNS-SQS-DLQ链
+    // 用于元数据和状态更新消息
+    const fileValidationQueue = new sqs.Queue(this, 'FileValidationQueue', {
+      deadLetterQueue: {
+        queue: props.dlq,
+        maxReceiveCount: 3
+      }
+    });
+
+    // 配置另一个Lambda函数以专门处理文件验证
+    const fileValidationLambda = new lambda.Function(this, 'FileValidationLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambdas/log-image'), // 重用相同的代码
+      environment: {
+        TABLE_NAME: props.imageTable.tableName
+      }
+    });
+
+    props.imageTable.grantWriteData(fileValidationLambda);
+
+    // 添加SQS触发器
+    fileValidationLambda.addEventSource(
+      new lambdaEventSources.SqsEventSource(fileValidationQueue)
+    );
+
+    // 创建从S3到SNS的事件通知，用于更灵活的事件处理
+    const notificationTopic = new sns.Topic(this, 'S3NotificationTopic');
     props.imageBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3n.SnsDestination(props.imageTopic)
+      new s3n.SnsDestination(notificationTopic)
     );
-    
-    // Configure SNS to filter messages to SQS
-    props.imageTopic.addSubscription(new snsSubs.SqsSubscription(props.imageQueue, {
-      filterPolicy: {
-        eventName: sns.SubscriptionFilter.stringFilter({
-          allowlist: ['ObjectCreated:*']
-        })
-      }
-    }));
-    
-    // Configure Log Image Lambda to process messages from SQS
-    logImageLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.imageQueue));
-    
-    // Configure Add Metadata Lambda to receive relevant SNS messages
+
+    // 将SNS消息路由到SQS以便文件验证
+    notificationTopic.addSubscription(
+      new snsSubs.SqsSubscription(fileValidationQueue)
+    );
+
+    // 配置SNS订阅用于元数据更新
     props.imageTopic.addSubscription(new snsSubs.LambdaSubscription(addMetadataLambda, {
       filterPolicy: {
         metadata_type: sns.SubscriptionFilter.stringFilter({

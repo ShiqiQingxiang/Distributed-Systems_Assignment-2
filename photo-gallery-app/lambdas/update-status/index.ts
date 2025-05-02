@@ -13,11 +13,20 @@ export const handler = async (event: SNSEvent): Promise<any> => {
   const record = event.Records[0].Sns;
   const message = JSON.parse(record.Message);
   
-  // 验证状态
-  if (!message.update || !['Pass', 'Reject'].includes(message.update.status)) {
-    console.error(`Invalid status: ${message.update?.status}`);
+  // 检查消息是否为状态更新消息 - 通过消息结构判断，符合作业文档要求
+  // 判断是否包含 id, date, update.status 等字段
+  if (!message.id || !message.date || !message.update || !message.update.status) {
+    console.log('不是状态更新消息，忽略处理');
+    return { statusCode: 200, body: 'Not a status update message' };
+  }
+  
+  // 验证状态是否有效
+  if (!['Pass', 'Reject'].includes(message.update.status)) {
+    console.error(`Invalid status: ${message.update.status}`);
     return { statusCode: 400, body: 'Invalid status' };
   }
+  
+  console.log(`处理状态更新: ${message.id}, 状态: ${message.update.status}`);
   
   // 更新DynamoDB
   const params = {
