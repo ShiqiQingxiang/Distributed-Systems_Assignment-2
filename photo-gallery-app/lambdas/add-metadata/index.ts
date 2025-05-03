@@ -6,7 +6,7 @@ const client = new DynamoDBClient({});
 const dynamodb = DynamoDBDocumentClient.from(client);
 
 export const handler = async (event: SNSEvent): Promise<any> => {
-  // 添加完整事件日志
+
   console.log('===== FULL EVENT =====');
   console.log(JSON.stringify(event, null, 2));
   console.log('=====================');

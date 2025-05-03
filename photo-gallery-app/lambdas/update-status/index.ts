@@ -13,22 +13,22 @@ export const handler = async (event: SNSEvent): Promise<any> => {
   const record = event.Records[0].Sns;
   const message = JSON.parse(record.Message);
   
-  // 检查消息是否为状态更新消息 - 通过消息结构判断，符合作业文档要求
-  // 判断是否包含 id, date, update.status 等字段
+  // Check if message is a status update message
+  // Verify it contains id, date, update.status fields
   if (!message.id || !message.date || !message.update || !message.update.status) {
-    console.log('不是状态更新消息，忽略处理');
+    console.log('Not a status update message, ignoring');
     return { statusCode: 200, body: 'Not a status update message' };
   }
   
-  // 验证状态是否有效
+  // Validate if status is valid
   if (!['Pass', 'Reject'].includes(message.update.status)) {
     console.error(`Invalid status: ${message.update.status}`);
     return { statusCode: 400, body: 'Invalid status' };
   }
   
-  console.log(`处理状态更新: ${message.id}, 状态: ${message.update.status}`);
+  console.log(`Processing status update: ${message.id}, status: ${message.update.status}`);
   
-  // 更新DynamoDB
+  // Update DynamoDB
   const params = {
     TableName: process.env.TABLE_NAME as string,
     Key: { id: message.id },
@@ -45,7 +45,7 @@ export const handler = async (event: SNSEvent): Promise<any> => {
     await dynamodb.send(new UpdateCommand(params));
     console.log(`Successfully updated status for image: ${message.id}`);
     
-    // 发送状态更新通知
+    // Send status update notification
     const notificationParams = {
       TopicArn: process.env.NOTIFICATION_TOPIC_ARN as string,
       Message: JSON.stringify({

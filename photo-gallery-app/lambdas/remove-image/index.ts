@@ -3,12 +3,12 @@ import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 const s3Client = new S3Client({});
 
-// 辅助函数：尝试从DLQ消息中提取S3信息
+// Helper function: Try to extract S3 information from DLQ message
 function extractS3InfoFromDLQ(record: any): { bucketName: string, key: string } | null {
   try {
     console.log('Processing DLQ record:', JSON.stringify(record, null, 2));
     
-    // 尝试解析消息体
+    // Try to parse message body
     let body: any = {};
     try {
       body = JSON.parse(record.body);
@@ -18,13 +18,13 @@ function extractS3InfoFromDLQ(record: any): { bucketName: string, key: string } 
       return null;
     }
     
-    // 检查是否有环境变量中的桶名
+    // Check if bucket name exists in environment variables
     const defaultBucketName = process.env.BUCKET_NAME || '';
     console.log(`Default bucket name from env: ${defaultBucketName}`);
     
-    // 尝试多种可能的消息格式
+    // Try multiple possible message formats
     
-    // 格式1: 标准的SNS消息格式
+    // Format 1: Standard SNS message format
     if (body.Message) {
       try {
         const message = JSON.parse(body.Message);
@@ -42,7 +42,7 @@ function extractS3InfoFromDLQ(record: any): { bucketName: string, key: string } 
       }
     }
     
-    // 格式2: 直接的S3事件记录
+    // Format 2: Direct S3 event record
     if (body.Records && body.Records[0] && body.Records[0].s3) {
       const s3Record = body.Records[0].s3;
       return {
@@ -51,11 +51,11 @@ function extractS3InfoFromDLQ(record: any): { bucketName: string, key: string } 
       };
     }
     
-    // 格式3: Lambda错误消息 - 增强的正则表达式
+    // Format 3: Lambda error message - enhanced regex
     if (body.errorMessage) {
       console.log('Found errorMessage:', body.errorMessage);
       
-      // 尝试匹配增强的错误消息格式
+      // Try to match enhanced error message format
       const bucketMatch = body.errorMessage.match(/from bucket ([^\s]+)/);
       const keyMatch = body.errorMessage.match(/Invalid file type detected: ([^-]+)/);
       
@@ -70,7 +70,7 @@ function extractS3InfoFromDLQ(record: any): { bucketName: string, key: string } 
         }
       }
       
-      // 备用提取方式
+      // Alternative extraction method
       const simpleKeyMatch = body.errorMessage.match(/file[:\s]+([^\s]+)/i);
       if (simpleKeyMatch && simpleKeyMatch[1] && defaultBucketName) {
         const key = simpleKeyMatch[1].trim();
@@ -94,7 +94,7 @@ export const handler = async (event: SQSEvent): Promise<any> => {
   
   for (const record of event.Records) {
     try {
-      // 提取S3信息
+      // Extract S3 information
       const s3Info = extractS3InfoFromDLQ(record);
       
       if (!s3Info || !s3Info.bucketName || !s3Info.key) {
@@ -105,8 +105,8 @@ export const handler = async (event: SQSEvent): Promise<any> => {
       const { bucketName, key } = s3Info;
       console.log(`Processing: Bucket=${bucketName}, Key=${key}`);
       
-      // 无论文件类型如何，都删除文件
-      // 只要文件信息是从DLQ中提取的，就意味着它是无效的或处理失败的
+      // Delete file regardless of file type
+      // If file information is extracted from DLQ, it means it's invalid or failed processing
       console.log(`Deleting file: ${key} from bucket: ${bucketName}`);
       
       try {

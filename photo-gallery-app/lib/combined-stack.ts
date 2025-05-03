@@ -21,7 +21,7 @@ export class CombinedStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // S3和DynamoDB资源
+    // S3 and DynamoDB resources
     this.imageBucket = new s3.Bucket(this, 'ImageBucket', {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
@@ -33,7 +33,7 @@ export class CombinedStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // 消息资源
+    // Messaging resources
     this.imageTopic = new sns.Topic(this, 'ImageTopic');
     this.statusTopic = new sns.Topic(this, 'StatusTopic');
     this.dlq = new sqs.Queue(this, 'ImageDLQ');
@@ -44,7 +44,7 @@ export class CombinedStack extends cdk.Stack {
       }
     });
 
-    // Lambda函数
+    // Lambda functions
     // 1. Log Image Lambda
     const logImageLambda = new lambda.Function(this, 'LogImageLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
@@ -93,12 +93,12 @@ export class CombinedStack extends cdk.Stack {
       code: lambda.Code.fromAsset('lambdas/status-mailer'),
       environment: {
         TABLE_NAME: this.imageTable.tableName,
-        PHOTOGRAPHER_EMAIL: 'shiqi030213@gmail.com',  // 设置为接收邮件的地址
-        FROM_EMAIL: 'shiqi030213@gmail.com'          // 已验证的发件人地址
+        PHOTOGRAPHER_EMAIL: 'shiqi030213@gmail.com',  // Email address to receive notifications
+        FROM_EMAIL: 'shiqi030213@gmail.com'          // Verified sender email address
       }
     });
 
-    // 授权
+    // Permissions
     this.imageTable.grantWriteData(logImageLambda);
     this.imageTable.grantWriteData(addMetadataLambda);
     this.imageTable.grantWriteData(updateStatusLambda);
@@ -106,15 +106,14 @@ export class CombinedStack extends cdk.Stack {
     this.imageBucket.grantDelete(removeImageLambda);
     this.statusTopic.grantPublish(updateStatusLambda);
 
-    // SES权限
+    // SES permissions
     const sesPolicy = new iam.PolicyStatement({
       actions: ['ses:SendEmail', 'ses:SendRawEmail'],
       resources: ['*'],
     });
     statusMailerLambda.addToRolePolicy(sesPolicy);
 
-    // 完全替换文件验证和S3事件部分
-    // 1. 创建一个文件验证队列和主题
+    // 1. Create a file validation queue and topic
     const validationQueue = new sqs.Queue(this, 'ValidationQueue', {
       deadLetterQueue: {
         queue: this.dlq,
@@ -122,38 +121,38 @@ export class CombinedStack extends cdk.Stack {
       }
     });
 
-    // 2. 创建文件验证Lambda函数
+    // 2. Create file validation Lambda function
     const fileValidationLambda = new lambda.Function(this, 'FileValidationLambda', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambdas/log-image'), // 重用相同的代码
+      code: lambda.Code.fromAsset('lambdas/log-image'), // Reuse the same code
       environment: {
         TABLE_NAME: this.imageTable.tableName
       }
     });
 
-    // 3. 连接验证队列到Lambda
+    // 3. Connect validation queue to Lambda
     fileValidationLambda.addEventSource(
       new lambdaEventSources.SqsEventSource(validationQueue)
     );
 
     this.imageTable.grantWriteData(fileValidationLambda);
 
-    // 4. 创建专门处理S3事件的SNS主题
+    // 4. Create SNS topic specifically for S3 events
     const s3EventTopic = new sns.Topic(this, 'S3EventTopic');
     
-    // 5. 将S3事件连接到SNS主题，而不是直接到Lambda
+    // 5. Connect S3 events to SNS topic, not directly to Lambda
     this.imageBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3n.SnsDestination(s3EventTopic)
     );
     
-    // 6. 从SNS主题连接到验证队列
+    // 6. Connect from SNS topic to validation queue
     s3EventTopic.addSubscription(
       new snsSubs.SqsSubscription(validationQueue)
     );
 
-    // 7. 元数据更新通过SNS进行过滤
+    // 7. Metadata updates filtered through SNS
     this.imageTopic.addSubscription(
       new snsSubs.LambdaSubscription(addMetadataLambda, {
         filterPolicy: {
@@ -164,17 +163,17 @@ export class CombinedStack extends cdk.Stack {
       })
     );
 
-    // 8. 状态更新通过SNS进行过滤 - 完全移除过滤器，依靠Lambda函数判断
+    // 8. Status updates filtered through SNS - completely remove filter, rely on Lambda function judgment
     this.imageTopic.addSubscription(
       new snsSubs.LambdaSubscription(updateStatusLambda)
     );
 
-    // 9. Remove Image Lambda从DLQ获取消息
+    // 9. Remove Image Lambda gets messages from DLQ
     removeImageLambda.addEventSource(
       new lambdaEventSources.SqsEventSource(this.dlq)
     );
 
-    // 10. Status Mailer从状态主题获取消息
+    // 10. Status Mailer gets messages from status topic
     this.statusTopic.addSubscription(
       new snsSubs.LambdaSubscription(statusMailerLambda)
     );
